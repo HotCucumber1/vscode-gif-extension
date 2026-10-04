@@ -11,26 +11,6 @@
   "activationEvents": [
     "*"
   ],
-  "contributes": {
-    "viewsContainers": {
-      "secondarybar": [
-        {
-          "id": "gif-container",
-          "title": "GIF",
-          "icon": "media/icon.svg"
-        }
-      ]
-    },
-    "views": {
-      "gif-container": [
-        {
-          "type": "webview",
-          "id": "gif-view",
-          "name": "GIF Player"
-        }
-      ]
-    }
-  },
   "scripts": {
     "compile": "tsc",
     "package": "vsce package",

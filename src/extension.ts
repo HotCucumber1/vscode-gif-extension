@@ -5,255 +5,36 @@ import * as vscode from "vscode";
 // ============================================================
 
 // Команда, которую отслеживаем.
-// Будут срабатывать:
+//
+// Сработает:
 //
 // racket
 // racket hello.rkt
 // racket test.rkt --foo bar
 // racket --version
 //
-// Но НЕ:
+// НЕ сработает:
 //
 // my-racket
-// foo-racket-test
+// foo-racket
+// echo racket
 //
 const TARGET_COMMAND = "racket";
 
-// GIF
+// GIF внутри extension/media/
 const GIF_FILE = "cat.gif";
 
-// Через сколько миллисекунд скрывать GIF.
-// 10000 = 10 секунд.
+// Сколько миллисекунд показывать GIF.
 const GIF_DURATION = 10000;
 
 
 // ============================================================
-// GIF VIEW
+// GLOBAL STATE
 // ============================================================
 
-class GifViewProvider implements vscode.WebviewViewProvider {
+let gifPanel: vscode.WebviewPanel | undefined;
 
-    public static readonly viewType = "gif-view";
-
-    private view?: vscode.WebviewView;
-
-    private hideTimer?: NodeJS.Timeout;
-
-    constructor(
-        private readonly extensionUri: vscode.Uri
-    ) {
-    }
-
-    resolveWebviewView(
-        webviewView: vscode.WebviewView
-    ): void {
-
-        this.view = webviewView;
-
-        webviewView.webview.options = {
-            enableScripts: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(
-                    this.extensionUri,
-                    "media"
-                )
-            ]
-        };
-
-        webviewView.webview.html =
-            this.getHtml(webviewView.webview);
-
-        webviewView.onDidDispose(() => {
-            this.view = undefined;
-        });
-    }
-
-
-    // ========================================================
-    // ПОКАЗАТЬ GIF
-    // ========================================================
-
-    public showGif(): void {
-
-        if (!this.view) {
-            return;
-        }
-
-        // Отменяем предыдущий таймер.
-        if (this.hideTimer) {
-            clearTimeout(this.hideTimer);
-        }
-
-        // Отправляем сообщение в WebView.
-        this.view.webview.postMessage({
-            command: "show"
-        });
-
-        // Через GIF_DURATION скрываем.
-        this.hideTimer = setTimeout(() => {
-
-            this.view?.webview.postMessage({
-                command: "hide"
-            });
-
-        }, GIF_DURATION);
-    }
-
-
-    // ========================================================
-    // HTML
-    // ========================================================
-
-    private getHtml(
-        webview: vscode.Webview
-    ): string {
-
-        const gifUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.extensionUri,
-                "media",
-                GIF_FILE
-            )
-        );
-
-        return `
-< !DOCTYPE
-html >
-
-<html lang = "en" >
-
-<head>
-
-    <meta charset = "UTF-8" >
-
-    <style>
-
-        html,
-    body
-{
-    margin: 0;
-    padding: 0;
-
-    width: 100 %;
-    height: 100 %;
-
-    overflow: hidden;
-
-    background: transparent;
-}
-
-#container
-{
-
-    width: 100 %;
-    height: 100 %;
-
-    display: flex;
-
-    justify - content
-:
-    center;
-    align - items
-:
-    center;
-
-    background: var (
-    --vscode - sideBar - background
-)
-    ;
-
-    opacity: 0;
-
-    transition: opacity
-    0.2
-    s
-    ease;
-
-    pointer - events
-:
-    none;
-}
-
-#container.visible
-{
-    opacity: 1;
-}
-
-img
-{
-
-    max - width
-:
-    95 %;
-    max - height
-:
-    95 %;
-
-    object - fit
-:
-    contain;
-}
-
-</style>
-
-< /head>
-
-< body >
-
-<div id = "container" >
-
-<img
-    src = "${gifUri}"
-alt = "GIF"
-    >
-
-    </div>
-
-
-    < script >
-
-const vscode = acquireVsCodeApi();
-
-const container =
-    document.getElementById("container");
-
-
-window.addEventListener(
-    "message",
-    event => {
-
-        const message = event.data;
-
-        if (message.command === "show") {
-
-            // Перезапускаем GIF.
-            const img =
-                container.querySelector("img");
-
-            const src = img.src;
-
-            img.src = "";
-
-            img.src = src;
-
-            container.classList.add("visible");
-        }
-
-        if (message.command === "hide") {
-
-            container.classList.remove("visible");
-        }
-    }
-);
-
-</script>
-
-< /body>
-
-< /html>
-    `;
-    }
-}
+let hideTimer: NodeJS.Timeout | undefined;
 
 
 // ============================================================
@@ -262,27 +43,16 @@ window.addEventListener(
 
 export function activate(
     context: vscode.ExtensionContext
-) {
+): void {
 
-    const gifProvider =
-        new GifViewProvider(
-            context.extensionUri
-        );
-
-
-    // Регистрируем GIF View.
-
-    context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(
-            GifViewProvider.viewType,
-            gifProvider
-        )
+    console.log(
+        "[GIF Extension] Extension activated"
     );
 
 
-    // ========================================================
-    // ОТСЛЕЖИВАЕМ КОМАНДЫ ТЕРМИНАЛА
-    // ========================================================
+    // --------------------------------------------------------
+    // Слушаем запуск команд в терминале.
+    // --------------------------------------------------------
 
     const terminalListener =
         vscode.window.onDidStartTerminalShellExecution(
@@ -291,40 +61,43 @@ export function activate(
                 const command =
                     event.execution.commandLine.value.trim();
 
+
                 console.log(
-                    "Terminal command:",
+                    "[GIF Extension] Terminal command:",
                     command
                 );
 
 
-                // Проверяем, начинается ли команда
-                // именно с "racket".
-                //
-                // Примеры:
-                //
-                // racket
-                // racket hello.rkt
-                // racket test.rkt --foo
-                //
-                // true
-                //
-                // my-racket
-                // foo racket
-                //
-                // false
+                // ------------------------------------------------
+                // Проверяем команду.
+                // ------------------------------------------------
 
-                const isRacketCommand =
+                const commandRegex =
                     new RegExp(
                         "^" +
-                        TARGET_COMMAND +
+                        escapeRegExp(TARGET_COMMAND) +
                         "(\\s|$)"
-                    ).test(command);
+                    );
 
 
-                if (isRacketCommand) {
+                if (!commandRegex.test(command)) {
 
-                    gifProvider.showGif();
+                    console.log(
+                        "[GIF Extension] Command ignored"
+                    );
+
+                    return;
                 }
+
+
+                console.log(
+                    "[GIF Extension] TARGET COMMAND FOUND"
+                );
+
+
+                showGif(
+                    context
+                );
             }
         );
 
@@ -336,8 +109,372 @@ export function activate(
 
 
 // ============================================================
+// SHOW GIF
+// ============================================================
+
+function showGif(
+    context: vscode.ExtensionContext
+): void {
+
+    // --------------------------------------------------------
+    // Если вкладка уже существует —
+    // просто показываем её.
+    // --------------------------------------------------------
+
+    if (gifPanel) {
+
+        gifPanel.reveal(
+            vscode.ViewColumn.Beside,
+            true
+        );
+
+        restartGif();
+
+        return;
+    }
+
+
+    // --------------------------------------------------------
+    // Создаём новую вкладку Webview.
+    // --------------------------------------------------------
+
+    gifPanel =
+        vscode.window.createWebviewPanel(
+            "racketGif",
+
+            "Racket GIF",
+
+            {
+                viewColumn:
+                vscode.ViewColumn.Beside,
+
+                preserveFocus: true
+            },
+
+            {
+                enableScripts: true,
+
+                localResourceRoots: [
+                    vscode.Uri.joinPath(
+                        context.extensionUri,
+                        "media"
+                    )
+                ]
+            }
+        );
+
+
+    // --------------------------------------------------------
+    // HTML WebView.
+    // --------------------------------------------------------
+
+    gifPanel.webview.html =
+        getHtml(
+            gifPanel.webview,
+            context.extensionUri
+        );
+
+
+    // --------------------------------------------------------
+    // Если пользователь закрыл вкладку —
+    // забываем её.
+    // --------------------------------------------------------
+
+    gifPanel.onDidDispose(
+        () => {
+
+            gifPanel = undefined;
+
+            if (hideTimer) {
+
+                clearTimeout(
+                    hideTimer
+                );
+
+                hideTimer = undefined;
+            }
+        },
+
+        undefined,
+
+        context.subscriptions
+    );
+
+
+    // --------------------------------------------------------
+    // Показываем GIF.
+    // --------------------------------------------------------
+
+    restartGif();
+}
+
+
+// ============================================================
+// RESTART GIF
+// ============================================================
+
+function restartGif(): void {
+
+    if (!gifPanel) {
+        return;
+    }
+
+
+    // --------------------------------------------------------
+    // Отменяем предыдущий таймер.
+    // --------------------------------------------------------
+
+    if (hideTimer) {
+
+        clearTimeout(
+            hideTimer
+        );
+    }
+
+
+    // --------------------------------------------------------
+    // Сообщаем WebView:
+    // показать и перезапустить GIF.
+    // --------------------------------------------------------
+
+    gifPanel.webview.postMessage({
+        command: "show"
+    });
+
+
+    // --------------------------------------------------------
+    // Через GIF_DURATION скрываем.
+    // --------------------------------------------------------
+
+    hideTimer =
+        setTimeout(
+            () => {
+
+                if (!gifPanel) {
+                    return;
+                }
+
+                gifPanel.webview.postMessage({
+                    command: "hide"
+                });
+
+            },
+            GIF_DURATION
+        );
+}
+
+
+// ============================================================
+// HTML
+// ============================================================
+
+function getHtml(
+    webview: vscode.Webview,
+    extensionUri: vscode.Uri
+): string {
+
+    const gifUri =
+        webview.asWebviewUri(
+            vscode.Uri.joinPath(
+                extensionUri,
+                "media",
+                GIF_FILE
+            )
+        );
+
+
+    return `
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <style>
+
+        html,
+    body {
+
+    margin: 0;
+    padding: 0;
+
+    width: 100%;
+    height: 100%;
+
+    overflow: hidden;
+
+    background: transparent;
+}
+
+
+#container {
+
+    width: 100%;
+    height: 100%;
+
+    display: flex;
+
+    justify-content: center;
+    align-items: center;
+
+    opacity: 0;
+
+    transition:
+        opacity 0.2s ease;
+}
+
+
+#container.visible {
+
+    opacity: 1;
+}
+
+
+img {
+
+    max-width: 95%;
+    max-height: 95%;
+
+    object-fit: contain;
+}
+
+</style>
+
+</head>
+
+
+<body>
+
+<div id="container">
+
+<img
+    id="gif"
+src="${gifUri}"
+alt="Racket GIF"
+    >
+
+    </div>
+
+
+    <script>
+
+const vscode =
+    acquireVsCodeApi();
+
+
+const container =
+    document.getElementById(
+        "container"
+    );
+
+
+const img =
+    document.getElementById(
+        "gif"
+    );
+
+
+window.addEventListener(
+    "message",
+    event => {
+
+        const message =
+            event.data;
+
+
+        // --------------------------------------------
+        // SHOW
+        // --------------------------------------------
+
+        if (
+            message.command === "show"
+        ) {
+
+            if (img) {
+
+                const src =
+                    img.src;
+
+                // Перезапускаем GIF.
+
+                img.src = "";
+
+                img.src = src;
+            }
+
+
+            if (container) {
+
+                container.classList.add(
+                    "visible"
+                );
+            }
+        }
+
+
+        // --------------------------------------------
+        // HIDE
+        // --------------------------------------------
+
+        if (
+            message.command === "hide"
+        ) {
+
+            if (container) {
+
+                container.classList.remove(
+                    "visible"
+                );
+            }
+        }
+
+    }
+);
+
+</script>
+
+</body>
+
+</html>
+    `;
+}
+
+
+// ============================================================
+// ESCAPE REGEXP
+// ============================================================
+
+function escapeRegExp(
+    value: string
+): string {
+
+    return value.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+    );
+}
+
+
+// ============================================================
 // DEACTIVATE
 // ============================================================
 
-export function deactivate() {
+export function deactivate(): void {
+
+    if (hideTimer) {
+
+        clearTimeout(
+            hideTimer
+        );
+    }
+
+
+    if (gifPanel) {
+
+        gifPanel.dispose();
+
+        gifPanel = undefined;
+    }
 }
