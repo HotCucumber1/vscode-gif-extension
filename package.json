@@ -1,0 +1,44 @@
+{
+  "name": "vscode-gif-extension",
+  "displayName": "VS Code GIF Extension",
+  "description": "Shows a GIF when a Racket command is executed.",
+  "version": "0.0.1",
+  "publisher": "dmitriy",
+  "engines": {
+    "vscode": "^1.139.0"
+  },
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "*"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "secondarybar": [
+        {
+          "id": "gif-container",
+          "title": "GIF",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "gif-container": [
+        {
+          "type": "webview",
+          "id": "gif-view",
+          "name": "GIF Player"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc",
+    "package": "vsce package",
+    "build": "npm run compile && npm run package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/vscode": "^1.139.0",
+    "typescript": "^5.9.3"
+  }
+}
