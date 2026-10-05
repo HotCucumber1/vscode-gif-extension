@@ -13,7 +13,7 @@
   ],
   "scripts": {
     "compile": "tsc",
-    "package": "vsce package",
+    "package": "vsce package --out builds",
     "build": "npm run compile && npm run package"
   },
   "devDependencies": {
