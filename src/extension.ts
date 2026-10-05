@@ -21,10 +21,29 @@ import * as vscode from "vscode";
 //
 const TARGET_COMMAND = "racket";
 
-// GIF внутри extension/media/
-const GIF_FILE = "cat.gif";
+
+// ============================================================
+// GIF
+// ============================================================
+
+// Файлы должны находиться:
+//
+// extension/
+// └── media/
+//     ├── cat.gif
+//     └── error.gif
+//
+const SUCCESS_GIF = "cat.gif";
+const ERROR_GIF = "dog.gif";
+
+
+// ============================================================
+// НАСТРОЙКИ ОТОБРАЖЕНИЯ
+// ============================================================
 
 // Сколько миллисекунд показывать GIF.
+//
+// 10000 = 10 секунд.
 const GIF_DURATION = 10000;
 
 
@@ -50,28 +69,49 @@ export function activate(
     );
 
 
-    // --------------------------------------------------------
-    // Слушаем запуск команд в терминале.
-    // --------------------------------------------------------
+    // ========================================================
+    // СЛУШАЕМ ЗАВЕРШЕНИЕ КОМАНДЫ В ТЕРМИНАЛЕ
+    // ========================================================
 
     const terminalListener =
-        vscode.window.onDidStartTerminalShellExecution(
+        vscode.window.onDidEndTerminalShellExecution(
             (event) => {
 
                 const command =
                     event.execution.commandLine.value.trim();
 
 
+                const exitCode =
+                    event.exitCode;
+
+
                 console.log(
-                    "[GIF Extension] Terminal command:",
+                    "[GIF Extension] Command finished:",
                     command
+                );
+
+                console.log(
+                    "[GIF Extension] Exit code:",
+                    exitCode
                 );
 
 
                 // ------------------------------------------------
-                // Проверяем команду.
+                // Проверяем, что это именно TARGET_COMMAND.
                 // ------------------------------------------------
-
+                //
+                // Сработает:
+                //
+                // racket
+                // racket hello.rkt
+                // racket test.rkt --foo bar
+                //
+                // Не сработает:
+                //
+                // my-racket
+                // foo-racket
+                // echo racket
+                //
                 const commandRegex =
                     new RegExp(
                         "^" +
@@ -83,7 +123,8 @@ export function activate(
                 if (!commandRegex.test(command)) {
 
                     console.log(
-                        "[GIF Extension] Command ignored"
+                        "[GIF Extension] Command ignored:",
+                        command
                     );
 
                     return;
@@ -91,12 +132,29 @@ export function activate(
 
 
                 console.log(
-                    "[GIF Extension] TARGET COMMAND FOUND"
+                    "[GIF Extension] TARGET COMMAND FINISHED"
+                );
+
+
+                // ------------------------------------------------
+                // Выбираем GIF по коду завершения.
+                // ------------------------------------------------
+
+                const gifFile =
+                    exitCode === 0
+                        ? SUCCESS_GIF
+                        : ERROR_GIF;
+
+
+                console.log(
+                    "[GIF Extension] Selected GIF:",
+                    gifFile
                 );
 
 
                 showGif(
-                    context
+                    context,
+                    gifFile
                 );
             }
         );
@@ -113,22 +171,41 @@ export function activate(
 // ============================================================
 
 function showGif(
-    context: vscode.ExtensionContext
+    context: vscode.ExtensionContext,
+    gifFile: string
 ): void {
 
     // --------------------------------------------------------
     // Если вкладка уже существует —
-    // просто показываем её.
+    // меняем HTML на нужный GIF
+    // и показываем её.
     // --------------------------------------------------------
 
     if (gifPanel) {
+
+        gifPanel.webview.html =
+            getHtml(
+                gifPanel.webview,
+                context.extensionUri,
+                gifFile
+            );
+
 
         gifPanel.reveal(
             vscode.ViewColumn.Beside,
             true
         );
 
-        restartGif();
+
+        // Небольшая задержка нужна,
+        // чтобы WebView успел загрузить новый HTML.
+        setTimeout(
+            () => {
+                restartGif();
+            },
+            50
+        );
+
 
         return;
     }
@@ -165,13 +242,14 @@ function showGif(
 
 
     // --------------------------------------------------------
-    // HTML WebView.
+    // Устанавливаем HTML.
     // --------------------------------------------------------
 
     gifPanel.webview.html =
         getHtml(
             gifPanel.webview,
-            context.extensionUri
+            context.extensionUri,
+            gifFile
         );
 
 
@@ -184,6 +262,7 @@ function showGif(
         () => {
 
             gifPanel = undefined;
+
 
             if (hideTimer) {
 
@@ -202,10 +281,16 @@ function showGif(
 
 
     // --------------------------------------------------------
-    // Показываем GIF.
+    // Ждём загрузки WebView,
+    // затем запускаем GIF.
     // --------------------------------------------------------
 
-    restartGif();
+    setTimeout(
+        () => {
+            restartGif();
+        },
+        100
+    );
 }
 
 
@@ -229,12 +314,13 @@ function restartGif(): void {
         clearTimeout(
             hideTimer
         );
+
+        hideTimer = undefined;
     }
 
 
     // --------------------------------------------------------
-    // Сообщаем WebView:
-    // показать и перезапустить GIF.
+    // Отправляем WebView команду показать GIF.
     // --------------------------------------------------------
 
     gifPanel.webview.postMessage({
@@ -243,7 +329,7 @@ function restartGif(): void {
 
 
     // --------------------------------------------------------
-    // Через GIF_DURATION скрываем.
+    // Через GIF_DURATION скрываем GIF.
     // --------------------------------------------------------
 
     hideTimer =
@@ -254,9 +340,11 @@ function restartGif(): void {
                     return;
                 }
 
+
                 gifPanel.webview.postMessage({
                     command: "hide"
                 });
+
 
             },
             GIF_DURATION
@@ -270,18 +358,27 @@ function restartGif(): void {
 
 function getHtml(
     webview: vscode.Webview,
-    extensionUri: vscode.Uri
+    extensionUri: vscode.Uri,
+    gifFile: string
 ): string {
+
+    // --------------------------------------------------------
+    // Получаем безопасный URI файла внутри WebView.
+    // --------------------------------------------------------
 
     const gifUri =
         webview.asWebviewUri(
             vscode.Uri.joinPath(
                 extensionUri,
                 "media",
-                GIF_FILE
+                gifFile
             )
         );
 
+
+    // --------------------------------------------------------
+    // HTML WebView.
+    // --------------------------------------------------------
 
     return `
 <!DOCTYPE html>
@@ -291,6 +388,11 @@ function getHtml(
 <head>
 
     <meta charset="UTF-8">
+
+<meta
+    name="viewport"
+content="width=device-width, initial-scale=1.0"
+    >
 
     <style>
 
@@ -332,7 +434,7 @@ function getHtml(
 }
 
 
-img {
+#gif {
 
     max-width: 95%;
     max-height: 95%;
@@ -376,9 +478,13 @@ const img =
     );
 
 
+// ====================================================
+// MESSAGE HANDLER
+// ====================================================
+
 window.addEventListener(
     "message",
-    event => {
+    (event) => {
 
         const message =
             event.data;
@@ -397,7 +503,12 @@ window.addEventListener(
                 const src =
                     img.src;
 
+
                 // Перезапускаем GIF.
+                //
+                // Установка пустого src,
+                // затем возврат исходного src
+                // заставляет браузер начать GIF заново.
 
                 img.src = "";
 
@@ -463,13 +574,23 @@ function escapeRegExp(
 
 export function deactivate(): void {
 
+    // --------------------------------------------------------
+    // Останавливаем таймер.
+    // --------------------------------------------------------
+
     if (hideTimer) {
 
         clearTimeout(
             hideTimer
         );
+
+        hideTimer = undefined;
     }
 
+
+    // --------------------------------------------------------
+    // Закрываем WebView.
+    // --------------------------------------------------------
 
     if (gifPanel) {
 

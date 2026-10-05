@@ -2,7 +2,7 @@
   "name": "vscode-gif-extension",
   "displayName": "VS Code GIF Extension",
   "description": "Shows a GIF when a Racket command is executed.",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "publisher": "dmitriy",
   "engines": {
     "vscode": "^1.139.0"
